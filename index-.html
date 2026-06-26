@@ -842,7 +842,7 @@ function makePlayer() {
     won:false, safe:false,
     nome:'Você', cor:'#f7c948',
     shield:false, shieldTimer:0,
-    forceMove:false, walkingOut:false, walkTargetX:0, walkTargetY:0, enteringArena:false,
+    forceMove:false, walkingOut:false, walkTargetX:0, walkTargetY:0,
   };
 }
 
@@ -1458,45 +1458,12 @@ function drawBombas() {
 }
 
 // ── ESCUDO — protege um jogador aleatório de uma morte ───────────────────────
-function giveShield(nomeUsuario, avatarUrl) {
-  if (gameState !== 'playing') return;
-
-  // Sem nome (ex.: tecla "E" de teste local) → mantém comportamento antigo:
-  // dá o escudo pra alguém aleatório entre os jogadores vivos.
-  if (!nomeUsuario) {
-    const candidatos = todosJogadores().filter(e => !e.shield);
-    if (candidatos.length === 0) return;
-    const alvo = candidatos[Math.floor(Math.random() * candidatos.length)];
-    alvo.shield = true;
-    alvo.shieldTimer = 12;
-    spawnExplosao(alvo.x, alvo.y - 40, '#22ccff');
-    return;
-  }
-
-  // Encontra quem ativou o evento, entre os vivos
-  let alvo = null;
-  if (player && !player.dead && !player.safe && player.nome === nomeUsuario) {
-    alvo = player;
-  } else {
-    alvo = extras.find(e => !e.dead && !e.safe && e.nome === nomeUsuario) || null;
-  }
-
-  // Não está na arena (morreu ou nunca entrou) → spawna a pessoa, já com escudo
-  if (!alvo) {
-    spawnJogadorExtra(nomeUsuario, avatarUrl);
-    if (player && !player.dead && player.nome === nomeUsuario) {
-      alvo = player;
-    } else {
-      alvo = extras.find(e => !e.dead && e.nome === nomeUsuario) || null;
-    }
-    if (!alvo) return; // não foi possível criar (ex: arena cheia)
-  }
-
+function giveShield() {
+  const candidatos = todosJogadores().filter(e => !e.shield);
+  if (candidatos.length === 0) return;
+  const alvo = candidatos[Math.floor(Math.random() * candidatos.length)];
   alvo.shield = true;
-  // Se a pessoa acabou de ser spawnada agora (ainda entrando na arena),
-  // mantém o escudo "permanente" da entrada — ele já será removido
-  // automaticamente quando ela cruzar a linha branca.
-  if (!alvo.enteringArena) alvo.shieldTimer = 12; // expira sozinho após 12s se não for usado
+  alvo.shieldTimer = 12; // expira sozinho após 12s se não for usado
   spawnExplosao(alvo.x, alvo.y - 40, '#22ccff');
 }
 
@@ -1815,15 +1782,10 @@ function update(dt) {
       const dx = player.walkTargetX - player.x, dy = player.walkTargetY - player.y;
       const dist = Math.hypot(dx, dy);
       if (dist < 8) {
-        if (player.enteringArena) {
-          // chegou na linha branca: para e libera controle normal
-          finalizarEntradaNaArena(player);
-        } else {
-          // chegou — escolhe novo destino sempre mais pra frente que pro lado
-          const t = pickForwardTarget(player.x, player.y);
-          player.walkTargetX = t.tx;
-          player.walkTargetY = t.ty;
-        }
+        // chegou — escolhe novo destino sempre mais pra frente que pro lado
+        const t = pickForwardTarget(player.x, player.y);
+        player.walkTargetX = t.tx;
+        player.walkTargetY = t.ty;
       } else {
         const spd = player.forceMoveRunning ? player.runSpeed : player.speed;
         player.vx = (dx / dist) * spd;
@@ -1887,15 +1849,10 @@ function update(dt) {
       const dx = e.walkTargetX - e.x, dy = e.walkTargetY - e.y;
       const dist = Math.hypot(dx, dy);
       if (dist < 6) {
-        if (e.enteringArena) {
-          // chegou na linha branca: para e libera (aguarda próximo comando)
-          finalizarEntradaNaArena(e);
-        } else {
-          // forceMove: escolhe novo destino sempre mais pra frente que pro lado
-          const t = pickForwardTarget(e.x, e.y);
-          e.walkTargetX = t.tx;
-          e.walkTargetY = t.ty;
-        }
+        // forceMove: escolhe novo destino sempre mais pra frente que pro lado
+        const t = pickForwardTarget(e.x, e.y);
+        e.walkTargetX = t.tx;
+        e.walkTargetY = t.ty;
       } else {
         const spd = e.forceMoveRunning ? 37 : 19;
         const normDist = dist || 1;
@@ -1956,11 +1913,10 @@ function update(dt) {
         if (g.frame >= halfFrame && !g.shotFired) {
           g.shotFired = true;
           // conta quantos serão eliminados para calibrar os tiros
-          // (jogadores com escudo ativo NÃO contam — eles não vão morrer)
           let eliminadosCount = 0;
-          if (player && !player.dead && !player.safe && !player.shield && (detectedMovement || (droneUnitario && droneUnitario.alvo === player && droneUnitario.alvoMorreu))) eliminadosCount++;
-          extras.forEach(e => { if (e.condemned && !e.dead && !e.safe && !e.shield) eliminadosCount++; });
-          extras.forEach(e => { if (!e.dead && !e.safe && !e.shield && timeLeft <= 0) eliminadosCount++; });
+          if (player && !player.dead && !player.safe && (detectedMovement || (droneUnitario && droneUnitario.alvo === player && droneUnitario.alvoMorreu))) eliminadosCount++;
+          extras.forEach(e => { if (e.condemned && !e.dead && !e.safe) eliminadosCount++; });
+          extras.forEach(e => { if (!e.dead && !e.safe && timeLeft <= 0) eliminadosCount++; });
           if (eliminadosCount === 0) eliminadosCount = 1;
           tiroAudio(eliminadosCount);
           // Se o drone pequeno marcou o jogador principal, mata ele
@@ -2498,7 +2454,7 @@ function spawnJogadorExtra(nomeCustom, avatarUrl) {
   ));
   if (tries < 30) {
     const idx = extras.length;
-    const novoExtra = {
+    extras.push({
       x: nx, y: ny,
       vx: 0, vy: 0,
       frame: 0, frameTimer: 0,
@@ -2511,8 +2467,7 @@ function spawnJogadorExtra(nomeCustom, avatarUrl) {
       cor: corAvatar(idx),
       avatarUrl: avatarUrl || null,
       shield: false, shieldTimer: 0,
-    };
-    extras.push(novoExtra);
+    });
   }
 }
 
@@ -2584,10 +2539,6 @@ function reiniciarRodada() {
   // Reseta estado de mortos sobreviventes
   extras.forEach(e => {
     e.condemned = false;
-    if (e.enteringArena) { e.shield = false; e.shieldTimer = 0; }
-    e.enteringArena = false;
-    e.forceMove = false;
-    e.forceMoveTimer = 0;
     e.walkingOut = false;
     e.idleTimer = 0;
   });
@@ -2758,11 +2709,9 @@ let forceMoveRunning = false; // false = andar, true = correr
 
 // Para o movimento de uma entidade já encontrada (usado por forcarParar e pelo toggle)
 function pararMovimentoEntidade(alvo) {
-  if (alvo.enteringArena) { alvo.shield = false; alvo.shieldTimer = 0; }
   alvo.forceMoveTimer = 0;
   alvo.forceMove      = false;
   alvo.walkingOut     = false;
-  alvo.enteringArena   = false;
   alvo.vx = 0; alvo.vy = 0;
   alvo.moving         = false;
   alvo.frame          = 0;
@@ -2785,10 +2734,16 @@ function forcarMovimento(correr, nomeUsuario, avatarUrl) {
     alvo = extras.find(e => !e.dead && !e.safe && e.nome === nomeUsuario) || null;
   }
 
-  // Jogador morto (ou que ainda nem entrou na partida) → ignora o evento.
-  // Andar/correr só deve afetar quem está vivo na arena no momento do clique;
-  // não deve trazer de volta quem já morreu antes do evento chegar.
-  if (!alvo) return null;
+  // Jogador morto (ou que ainda nem entrou na partida) → faz ele VOLTAR ao jogo
+  if (!alvo) {
+    spawnJogadorExtra(nomeUsuario, avatarUrl);
+    if (player && !player.dead && player.nome === nomeUsuario) {
+      alvo = player;
+    } else {
+      alvo = extras.find(e => !e.dead && e.nome === nomeUsuario) || null;
+    }
+    if (!alvo) return null; // não foi possível criar (ex: arena cheia)
+  }
 
   // Toggle: se já está se movendo no MESMO modo (andando/correndo), aciona de novo = parar
   if (alvo.forceMove && alvo.forceMoveRunning === correr) {
@@ -2868,7 +2823,7 @@ function executeAction(action, user, avatar, repeat) {
       spawnBomba(user);
       showEventNotif(user, avatar, 'SPAWN_BOMBA', vitima ? vitima.nome : null);
     } else if (action === "ESCUDO") {
-      giveShield(user, avatar);
+      giveShield();
       showEventNotif(user, avatar, 'ESCUDO');
     } else if (action === "TEMPO_MAIS20") {
       adjustTime(20);
